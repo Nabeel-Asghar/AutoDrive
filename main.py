@@ -4,8 +4,39 @@ from PIL import ImageGrab
 import cv2
 from IPython.display import Image
 import pyautogui
-from directkeys import PressKey, W, A, S, D
+from directkeys import ReleaseKey,PressKey, W, A, S, D
+from grabscreen import grab_screen
 import math
+
+def goStraight():
+    PressKey(W)
+    ReleaseKey(A)
+    ReleaseKey(D)
+    ReleaseKey(S)
+    print("Straight")
+
+def turnLeft():
+    PressKey(A)
+    ReleaseKey(A)
+    ReleaseKey(D)
+    ReleaseKey(W)
+    ReleaseKey(S)
+    print("Left")
+
+def turnRight():
+    PressKey(D)
+    ReleaseKey(D)
+    ReleaseKey(A)
+    ReleaseKey(W)
+    ReleaseKey(S)
+
+    print("Right")
+
+def rolling_stop():
+    ReleaseKey(W)
+    ReleaseKey(A)
+    ReleaseKey(D)
+    print("Stop")
 
 def mathfunc(x1,y1,x2,y2):
 
@@ -17,25 +48,30 @@ def mathfunc(x1,y1,x2,y2):
 def to_keep_index(obs, std=1.5):
     return np.array(abs(obs - np.mean(obs)) < std*np.std(obs))
 
+#Modified code from Cody Nicholson and Jeff Wen
 def avg_lines(image,lines):
 
     neg = np.empty([1,3])
     pos = np.empty([1,3])
 
-    ## calculate slopes for each line to identify the positive and negative lines
+    #Calculate slopes for each line to identify the positive and negative lines
     for line in lines:
         for x1,y1,x2,y2 in line:
+
             slope,intercept,line_length = mathfunc(x1,y1,x2,y2)
+
             if slope < 0 and line_length > 10:
                 neg = np.append(neg,np.array([[slope, intercept, line_length]]),axis = 0)
+
             elif slope > 0 and line_length > 10:
                 pos = np.append(pos,np.array([[slope, intercept, line_length]]),axis = 0)
 
-    ## just keep the observations with slopes with 2 std dev
+
+    #Just keep the observations with slopes with 2 std dev
     neg = neg[to_keep_index(neg[:,0])]
     pos = pos[to_keep_index(pos[:,0])]
 
-    ## weighted average of the slopes and intercepts based on the length of the line segment
+    #Weighted average of the slopes and intercepts based on the length of the line segment
     neg_lines = np.dot(neg[1:,2],neg[1:,:2])/np.sum(neg[1:,2]) if len(neg[1:,2]) > 0 else None
     pos_lines = np.dot(pos[1:,2],pos[1:,:2])/np.sum(pos[1:,2]) if len(pos[1:,2]) > 0 else None
 
@@ -45,8 +81,8 @@ def avg_lines(image,lines):
     AvgRightB     = neg_lines[1]
 
     imshape = image.shape
-    y_max   = imshape[0] # lines initial point at bottom of image
-    y_min   = 200
+    y_max   = imshape[0]
+    y_min   = 225
 
     x1_Left = (y_max - AvgLeftB)/AvgPositiveM
     y1_Left = y_max
@@ -58,9 +94,14 @@ def avg_lines(image,lines):
     x2_Right = (y_min - AvgRightB)/AvgNegitiveM
     y2_Right = y_min
 
-    # define average left and right lines
-    cv2.line(image, (int(x1_Left), int(y1_Left)), (int(x2_Left), int(y2_Left)), [0,200,0], 10) #avg Left Line
-    cv2.line(image, (int(x1_Right), int(y1_Right)), (int(x2_Right), int(y2_Right)), [0,200,0], 10) #avg Right Line
+    #Put left and right lane onto original image
+    cv2.line(image, (int(x1_Left), int(y1_Left)), (int(x2_Left), int(y2_Left)), [0,200,0], 15) #avg Left Line
+    cv2.line(image, (int(x1_Right), int(y1_Right)), (int(x2_Right), int(y2_Right)), [0,200,0], 15) #avg Right Line
+
+    leftLaneSlope  = AvgPositiveM
+    rightLaneSlope =  AvgNegitiveM
+
+    return(leftLaneSlope, rightLaneSlope)
 
 
 def draw_lines(img,lines):
@@ -70,7 +111,6 @@ def draw_lines(img,lines):
             cv2.line(img, (coords[0], coords[1]), (coords[2], coords[3]), [255,255,255], 3)
     except:
         pass
-
 
 def roi(img, vertices):
     mask = np.zeros_like(img)
@@ -83,11 +123,11 @@ def image_process(image):
 
     processedImage = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     processedImage =  cv2.Canny(processedImage, threshold1 = 100, threshold2=300)
-
     # For 3rd person vertices = np.array([[200,1000],[150,450],[400,225],[800,225],[850,450],[850,700],], np.int32)
     #From hood of car
-    #vertices = np.array([[10,650],[100,500],[400,200],[625,200],[815,500],[850,650],], np.int32)
-    vertices = np.array([[433,383],[30,675],[25,650],[440,220],[610,200],[1000,630],[720,675],[615,380],], np.int32)
+    vertices = np.array([[0,590],[0,490],[430,320],[675,320],[1020,450],[1020,590],], np.int32)
+    #vertices = np.array([[433,383],[70,675],[25,650],[455,220],[600,200],[1000,630],[675,675],[615,380],], np.int32)
+    #vertices = np.array([[250,425],[450,300],[640,300],[840,425],], np.int32)
     processedImage = cv2.GaussianBlur(processedImage,(5,5),0)
     processedImage = roi(processedImage, [vertices])
 
@@ -96,28 +136,40 @@ def image_process(image):
     draw_lines(processedImage,lines)
     cv2.imwrite('pre.png', processedImage)
 
-    line_image = draw_lanes(originalImage, lines)
-    avg_lines(originalImage, lines)
+    left,right = avg_lines(originalImage, lines)
 
-
-    return(originalImage)
-
+    return(originalImage,left,right)
 
 def screen_record():
+
+    left  = 0
+    right = 0
 
     last_time = time.time()
     while True:
         #PressKey(W)
-        printscreen =  np.array(ImageGrab.grab(bbox=(0,40,1024,768)))
-        new_screen = image_process(printscreen)
-        cv2.imwrite('processedImage.png', new_screen)
-        num_seconds = time.time() - last_time
-        print(num_seconds)
-        if num_seconds > 2:
+        printscreen = grab_screen(region=(0,40,1024,768))
+        try:
+            new_screen,left,right = image_process(printscreen)
+            cv2.imshow('window', new_screen)
+            #cv2.waitKey()
+            #cv2.imwrite('processedImage.png', new_screen)
+            num_seconds = time.time() - last_time
+
+        except:
+            continue
+        print(left+right)
+        if left+right > 0.8:
+            turnLeft()
+        elif left+right<-0.8:
+            turnRight()
+        print("\n")
+        # if num_seconds > 100:
+        #       break
+        if cv2.waitKey(25) & 0xFF == ord('q'):
+            cv2.destroyAllWindows()
             break
-        # if cv2.waitKey(25) & 0xFF == ord('q'):
-        #     cv2.destroyAllWindows()
-        #     break
+
 
 def main():
     for i in range(2,0,-1):
