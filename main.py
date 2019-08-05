@@ -7,6 +7,14 @@ import pyautogui
 from directkeys import ReleaseKey,PressKey, W, A, S, D
 from grabscreen import grab_screen
 import math
+from collections import deque
+import statistics
+
+leftSlope = deque()
+leftIntercept = deque()
+
+rightSlope= deque()
+rightIntercept = deque()
 
 def goStraight():
     PressKey(W)
@@ -17,6 +25,7 @@ def goStraight():
 
 def turnLeft():
     PressKey(A)
+    time.sleep(2)
     ReleaseKey(A)
     ReleaseKey(D)
     ReleaseKey(W)
@@ -25,11 +34,11 @@ def turnLeft():
 
 def turnRight():
     PressKey(D)
+    time.sleep(2)
     ReleaseKey(D)
     ReleaseKey(A)
     ReleaseKey(W)
     ReleaseKey(S)
-
     print("Right")
 
 def rolling_stop():
@@ -47,6 +56,52 @@ def mathfunc(x1,y1,x2,y2):
 
 def to_keep_index(obs, std=1.5):
     return np.array(abs(obs - np.mean(obs)) < std*np.std(obs))
+
+def mean(list):
+    mean = 0
+
+    for i in list:
+        mean +=i
+
+    mean = mean/len(list)
+
+    return(mean)
+
+def leftLines(slope,intercept):
+
+    if len(leftSlope) > 5 and len(leftIntercept) > 5:
+        leftSlope.popleft()
+        leftIntercept.popleft()
+
+        leftSlope.append(slope)
+        leftIntercept.append(intercept)
+
+    else:
+        leftSlope.append(slope)
+        leftIntercept.append(intercept)
+
+    slopeAvg     = mean(leftSlope)
+    interceptAvg = mean(leftIntercept)
+
+    return(slopeAvg,interceptAvg)
+
+def rightLines(slope,intercept):
+
+    if len(rightSlope) > 5 and len(rightIntercept) > 5:
+        rightSlope.popleft()
+        rightIntercept.popleft()
+
+        rightSlope.append(slope)
+        rightIntercept.append(intercept)
+    else:
+        rightSlope.append(slope)
+        rightIntercept.append(intercept)
+
+    slopeAvg     = mean(rightSlope)
+    interceptAvg = mean(rightIntercept)
+
+    return(slopeAvg,interceptAvg)
+
 
 #Modified code from Cody Nicholson and Jeff Wen
 def avg_lines(image,lines):
@@ -75,14 +130,19 @@ def avg_lines(image,lines):
     neg_lines = np.dot(neg[1:,2],neg[1:,:2])/np.sum(neg[1:,2]) if len(neg[1:,2]) > 0 else None
     pos_lines = np.dot(pos[1:,2],pos[1:,:2])/np.sum(pos[1:,2]) if len(pos[1:,2]) > 0 else None
 
-    AvgPositiveM  = pos_lines[0]
-    AvgLeftB      = pos_lines[1]
-    AvgNegitiveM  = neg_lines[0]
-    AvgRightB     = neg_lines[1]
+    lSlope  = pos_lines[0]
+    lIntercept      = pos_lines[1]
+
+    AvgPositiveM, AvgLeftB = leftLines(lSlope,lIntercept)
+
+    rSlope     = neg_lines[0]
+    rIntercept = neg_lines[1]
+
+    AvgNegitiveM, AvgRightB = rightLines(rSlope,rIntercept)
 
     imshape = image.shape
     y_max   = imshape[0]
-    y_min   = 225
+    y_min   = 300
 
     x1_Left = (y_max - AvgLeftB)/AvgPositiveM
     y1_Left = y_max
@@ -103,7 +163,6 @@ def avg_lines(image,lines):
 
     return(leftLaneSlope, rightLaneSlope)
 
-
 def draw_lines(img,lines):
     try:
         for line in lines:
@@ -123,18 +182,21 @@ def image_process(image):
 
     processedImage = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     processedImage =  cv2.Canny(processedImage, threshold1 = 100, threshold2=300)
+    cv2.imwrite('1.png', processedImage)
     # For 3rd person vertices = np.array([[200,1000],[150,450],[400,225],[800,225],[850,450],[850,700],], np.int32)
     #From hood of car
-    vertices = np.array([[0,590],[0,490],[430,320],[675,320],[1020,450],[1020,590],], np.int32)
+    vertices = np.array([[5,590],[5,520],[525,320],[1020,480],[1020,590],], np.int32)
     #vertices = np.array([[433,383],[70,675],[25,650],[455,220],[600,200],[1000,630],[675,675],[615,380],], np.int32)
     #vertices = np.array([[250,425],[450,300],[640,300],[840,425],], np.int32)
     processedImage = cv2.GaussianBlur(processedImage,(5,5),0)
+    cv2.imwrite('2.png', processedImage)
     processedImage = roi(processedImage, [vertices])
+    cv2.imwrite('3.png', processedImage)
 
     lines = cv2.HoughLinesP(processedImage, 1, np.pi/180, 180, 20, 15)
 
     draw_lines(processedImage,lines)
-    cv2.imwrite('pre.png', processedImage)
+    cv2.imwrite('4.png', processedImage)
 
     left,right = avg_lines(originalImage, lines)
 
@@ -152,6 +214,7 @@ def screen_record():
         try:
             new_screen,left,right = image_process(printscreen)
             cv2.imshow('window', new_screen)
+            cv2.waitKey(5)
             #cv2.waitKey()
             #cv2.imwrite('processedImage.png', new_screen)
             num_seconds = time.time() - last_time
@@ -159,16 +222,17 @@ def screen_record():
         except:
             continue
         print(left+right)
-        if left+right > 0.8:
-            turnLeft()
-        elif left+right<-0.8:
-            turnRight()
-        print("\n")
+        # if left+right > 0.6:
+        #      turnLeft()
+        # elif left+right<-0.6:
+        #      turnRight()
+        # else:
+        #     goStraight()
         # if num_seconds > 100:
         #       break
-        if cv2.waitKey(25) & 0xFF == ord('q'):
-            cv2.destroyAllWindows()
-            break
+        # if cv2.waitKey(25) & 0xFF == ord('q'):
+        #     cv2.destroyAllWindows()
+        #     break
 
 
 def main():
